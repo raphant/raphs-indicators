@@ -250,9 +250,13 @@ def volatility_threshold(
     logger.debug(f"📊 Index > first: {pd.Series(range(len(df_calc))) > 0}")
     
     if valid_idx.any():
+        # Calculate threshold as percentage of price
         threshold[valid_idx] = (tr[valid_idx] / df_calc['low'][valid_idx]) * volatility_multiplier
         logger.debug(f"✨ Calculated thresholds for {valid_idx.sum()} valid bars")
-        logger.debug(f"📊 Threshold values: {threshold.values}")
+        logger.debug(f"📊 TR values used: {tr[valid_idx].values}")
+        logger.debug(f"📊 Low values used: {df_calc['low'][valid_idx].values}")
+        logger.debug(f"📊 Raw ratios (TR/Low): {(tr[valid_idx] / df_calc['low'][valid_idx]).values}")
+        logger.debug(f"📊 Final threshold values: {threshold.values}")
         logger.debug(f"📊 Threshold stats - Mean: {threshold.mean():.4f}, Max: {threshold.max():.4f}, Min: {threshold.min():.4f}")
     else:
         logger.warning("⚠️ No valid data points found for threshold calculation")

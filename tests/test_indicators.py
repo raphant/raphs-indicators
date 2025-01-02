@@ -5,6 +5,7 @@ Tests for main indicator functions in raphs_indicators module.
 import logging
 import pandas as pd
 import pytest
+import numpy as np
 from raphs_indicators import (
     ladder_breakout,
     dual_ma,
@@ -128,4 +129,5 @@ def test_volatility_threshold(sample_ohlcv):
     
     # Verify that custom threshold is proportionally larger
     ratio = custom_threshold.iloc[1:] / threshold.iloc[1:]
-    assert (ratio.round(8) == (1.5 / 0.7)).all()  # Compare with default multiplier 
+    expected_ratio = 1.5 / 0.7
+    assert np.allclose(ratio, expected_ratio, rtol=1e-10, atol=0), f"Expected ratio {expected_ratio}, got {ratio}" 
