@@ -338,10 +338,11 @@ def dual_ma(
     # Create dynamic column names based on MA types and periods
     fast_col = f"{fast_ma_type.lower()}{fast_period}"
     slow_col = f"{slow_ma_type.lower()}{slow_period}"
+    signal_col = f"dual_ma_signal"
     
     return {
         fast_col: fast_ma,
         slow_col: slow_ma,
-        'dual_ma_signal': signal
+        signal_col: signal
     }
 
