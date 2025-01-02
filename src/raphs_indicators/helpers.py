@@ -11,15 +11,34 @@ import logging
 # Create module logger
 logger = logging.getLogger("raphs_indicators")
 
-def validate_ohlcv(df: pd.DataFrame) -> None:
-    """Validate that DataFrame has required OHLCV columns."""
+def validate_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Validate that DataFrame has required OHLCV columns and normalize column names to lowercase.
+    
+    Args:
+        df: Input DataFrame
+        
+    Returns:
+        pd.DataFrame: Copy of input DataFrame with lowercase column names
+        
+    Raises:
+        ValueError: If required OHLCV columns are missing
+    """
+    df_copy = df.copy()
+    
+    # Convert all column names to lowercase
+    df_copy.columns = df_copy.columns.str.lower()
+    
     required_columns = ['open', 'high', 'low', 'close', 'volume']
-    missing_columns = [col for col in required_columns if col not in df.columns]
+    missing_columns = [col for col in required_columns if col not in df_copy.columns]
+    
     if missing_columns:
         logger.error(f"❌ Missing required columns: {missing_columns}")
         raise ValueError(f"DataFrame missing required columns: {missing_columns}")
+        
     logger.debug("✓ DataFrame validated - all OHLCV columns present")
-    
+    return df_copy
+
 def _compare_series(series1: pd.Series, series2: pd.Series, comparison_func) -> pd.Series:
     """
     Internal helper for series comparisons with NaN handling.

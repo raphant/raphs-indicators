@@ -156,8 +156,7 @@ def ladder_breakout(df: pd.DataFrame) -> dict[str, pd.Series]:
         4    1
         dtype: int64
     """
-    validate_ohlcv(df)
-    df_calc = df.copy()
+    df_calc = validate_ohlcv(df)
     
     logger.debug(f"🔍 Analyzing ladder breakout pattern for {len(df)} bars")
     
@@ -221,8 +220,7 @@ def volatility_threshold(
         4    0.230769
         dtype: float64
     """
-    validate_ohlcv(df)
-    df_calc = df.copy()
+    df_calc = validate_ohlcv(df)
     
     logger.debug(f"📈 Calculating volatility threshold with volatility_multiplier={volatility_multiplier}")
     logger.debug(f"📊 Input data shape: {df_calc.shape}")
@@ -311,14 +309,12 @@ def dual_ma(
         4    1
         dtype: int64
     """
-    validate_ohlcv(df)
+    df_calc = validate_ohlcv(df)
     
     if fast_period >= slow_period:
         logger.error(f"❌ Invalid periods: fast_period ({fast_period}) >= slow_period ({slow_period})")
         raise ValueError(f"fast_period ({fast_period}) must be less than slow_period ({slow_period})")
         
-    df_calc = df.copy()
-    
     logger.debug(f"📊 Calculating dual MA crossover - Fast: {fast_ma_type}({fast_period}), Slow: {slow_ma_type}({slow_period})")
     
     # Calculate fast and slow MAs
