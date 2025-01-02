@@ -9,3 +9,4 @@ wheels/
 # Virtual environments
 .venv
 .history/
+.pytest_cache/
