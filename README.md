@@ -93,6 +93,39 @@ threshold = result['volatility_threshold']  # Threshold as percentage of price
 - Signals are shifted by +1 to avoid lookahead bias
 - Signal column names end with '_signal' (e.g. 'breakout_signal')
 
+## Multi-Timeframe Analysis
+
+All indicators support automatic multi-timeframe analysis through the `with_higher_timeframes` decorator. This allows you to calculate indicators across multiple timeframes in a single call.
+
+```python
+from raphs_indicators import dual_ma
+
+# Configure timeframes and parameters
+config = {
+    'symbol': 'BTC/USDT',
+    'original_timeframe': '1h',  # Base timeframe
+    '4h': {  # 4-hour timeframe with custom parameters
+        'fast_period': 5,
+        'slow_period': 10,
+        'fast_ma_type': 'WMA'
+    },
+    '1d': {  # Daily timeframe
+        'fast_period': 3,
+        'slow_period': 7
+    }
+}
+
+# Calculate indicators across all timeframes
+result = dual_ma(df, config)
+
+# Access signals
+base_signal = result['dual_ma_signal']           # 1h timeframe
+h4_signal = result['dual_ma_signal_4h']         # 4h timeframe
+daily_signal = result['dual_ma_signal_1d']      # Daily timeframe
+```
+
+The higher timeframe results are automatically downloaded, calculated, and merged with the base timeframe data. All signals are properly aligned to avoid lookahead bias.
+
 ## Development
 
 ### Setting Up Development Environment
