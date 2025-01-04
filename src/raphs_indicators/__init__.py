@@ -104,7 +104,7 @@ logging.basicConfig(
 logger = logging.getLogger("raphs_indicators")
 logger.setLevel(logging.INFO)
 
-def with_timeframes(func):
+def with_higher_timeframes(func):
     """
     Decorator that automatically calculates indicators across multiple timeframes.
     
@@ -198,7 +198,7 @@ def with_timeframes(func):
         
     return wrapper
 
-@with_timeframes
+@with_higher_timeframes
 def ladder_breakout(df: pd.DataFrame) -> dict[str, pd.Series]:
     """
     Compute the Ladder Breakout indicator which identifies potential buy signals
@@ -252,7 +252,7 @@ def ladder_breakout(df: pd.DataFrame) -> dict[str, pd.Series]:
         'ladder_breakout_signal': buy_signal
     }
 
-@with_timeframes
+@with_higher_timeframes
 def volatility_threshold(
     df: pd.DataFrame, 
     volatility_multiplier: float = 0.7
@@ -302,7 +302,7 @@ def volatility_threshold(
         'volatility_threshold': threshold
     }
 
-@with_timeframes
+@with_higher_timeframes
 def dual_ma(
     df: pd.DataFrame,
     fast_period: int = 10,
