@@ -82,8 +82,11 @@ def my_indicator(df: pd.DataFrame, param: int) -> Dict[str, pd.Series]:
     }
 """
 
+from ccxt_easy_dl import download_ohlcv
 import pandas as pd
 import talib
+
+from raphs_indicators.utils import merge_informative_pair
 from .helpers import calculate_ma, detect_crossover, validate_ohlcv
 import numpy as np
 import logging
@@ -101,6 +104,101 @@ logging.basicConfig(
 logger = logging.getLogger("raphs_indicators")
 logger.setLevel(logging.INFO)
 
+def with_timeframes(func):
+    """
+    Decorator that automatically calculates indicators across multiple timeframes.
+    
+    The config dictionary must include the original_timeframe and symbol:
+    {
+        'symbol': 'BTC/USD',
+        'original_timeframe': '1h',  # Required - base timeframe
+        '4h': {'param1': value1},
+        '1d': {'param1': value1}
+    }
+    """
+    def wrapper(df: pd.DataFrame, config: dict = None, *args, **kwargs):
+        # Get base results first using original arguments
+        logger.debug("🔄 Calculating base timeframe indicators")
+        base_results = func(df, *args, **kwargs)
+        
+        if not config:
+            return base_results
+            
+        # Validate required config keys
+        required_keys = {'symbol', 'original_timeframe'}
+        missing_keys = required_keys - set(config.keys())
+        if missing_keys:
+            logger.error(f"❌ Missing required config keys: {missing_keys}")
+            raise ValueError(f"Config must include {required_keys}")
+            
+        final_results = base_results.copy()
+        symbol = config['symbol']
+        original_tf = config['original_timeframe']
+        
+        # Get timeframe configs (excluding special keys)
+        timeframe_configs = {k: v for k, v in config.items() 
+                           if k not in {'symbol', 'original_timeframe'}}
+        
+        # Extract date range from input DataFrame
+        start_date = df.index.min()
+        end_date = df.index.max()
+        
+        # Calculate for each additional timeframe
+        for tf, tf_kwargs in timeframe_configs.items():
+            logger.debug(f"🔄 Processing {tf} timeframe for {symbol}")
+            try:
+                tf_df = download_ohlcv(
+                    symbol,
+                    timeframes=[tf],
+                    start_date=start_date,
+                    end_date=end_date
+                )[tf]
+                
+                # Calculate indicators for this timeframe
+                tf_results = func(tf_df, **tf_kwargs)
+                
+                # Convert results to DataFrame for merging
+                tf_results_df = pd.DataFrame(tf_results)
+                
+                # Create empty DataFrame with correct index
+                empty_df = pd.DataFrame(index=df.index)
+                
+                # Merge with higher timeframe data
+                merged = merge_informative_pair(
+                    dataframe=empty_df,
+                    informative=tf_results_df,
+                    timeframe=original_tf,
+                    timeframe_inf=tf,
+                    ffill=True,
+                    append_timeframe=True,
+                    suffix=None
+                )
+                
+                # Add merged columns to final results
+                for col in merged.columns:
+                    # Check if this is a signal column (with timeframe suffix)
+                    is_signal = any(col.startswith(f"{base_col}_") and base_col.endswith('_signal') 
+                                  for base_col in tf_results_df.columns)
+                    
+                    if is_signal:
+                        try:
+                            # Convert signal columns to int, handling NaN values
+                            final_results[col] = merged[col].fillna(0).astype('int64')
+                        except Exception as e:
+                            logger.error(f"❌ Failed to convert {col} to int: {str(e)}")
+                            raise
+                    else:
+                        final_results[col] = merged[col]
+                    
+            except Exception as e:
+                logger.exception(f"❌ Failed to process {tf} timeframe: {str(e)}")
+                continue
+                
+        return final_results
+        
+    return wrapper
+
+@with_timeframes
 def ladder_breakout(df: pd.DataFrame) -> dict[str, pd.Series]:
     """
     Compute the Ladder Breakout indicator which identifies potential buy signals
@@ -128,37 +226,8 @@ def ladder_breakout(df: pd.DataFrame) -> dict[str, pd.Series]:
     └─────┘
           │
           └──── Bar N-3
-    
-    Args:
-        df (pd.DataFrame): DataFrame with OHLCV data
-        
-    Returns:
-        dict: Dictionary with key 'ladder_breakout_signal' mapping to an integer Series
-              where 1 indicates a buy signal and 0 indicates no signal. Note that signals 
-              are shifted by +1 to avoid lookahead bias, meaning the signal appears on 
-              the next bar after the pattern completes.
-              
-    Example:
-        >>> import pandas as pd
-        >>> df = pd.DataFrame({
-        ...     'open': [10, 11, 12, 13, 14],
-        ...     'high': [12, 13, 14, 15, 16],
-        ...     'low':  [9, 10, 11, 12, 13],
-        ...     'close': [11, 12, 13, 14, 15],
-        ...     'volume': [100, 100, 100, 100, 100]
-        ... })
-        >>> result = ladder_breakout(df)
-        >>> result['ladder_breakout_signal']
-        0    0
-        1    0
-        2    0
-        3    0
-        4    1
-        dtype: int64
     """
     df_calc = validate_ohlcv(df)
-    
-    logger.debug(f"🔍 Analyzing ladder breakout pattern for {len(df)} bars")
     
     # Vectorized conditions using shift operations
     c1 = df_calc['high'] > df_calc['high'].shift(1)  # Current high > Previous high
@@ -176,13 +245,14 @@ def ladder_breakout(df: pd.DataFrame) -> dict[str, pd.Series]:
     signal_count = buy_signal.sum()
     logger.debug(f"📊 Found {signal_count} ladder breakout patterns")
     
-    # Shift by 1 to avoid lookahead bias
+    # Shift by 1 to avoid lookahead bias and ensure int type
     buy_signal = buy_signal.shift(1).fillna(0).astype(int)
     
     return {
         'ladder_breakout_signal': buy_signal
     }
 
+@with_timeframes
 def volatility_threshold(
     df: pd.DataFrame, 
     volatility_multiplier: float = 0.7
@@ -201,32 +271,10 @@ def volatility_threshold(
     Returns:
         dict: Dictionary with key 'volatility_threshold' mapping to a Series
              representing the threshold as a percentage of price
-             
-    Example:
-        >>> import pandas as pd
-        >>> df = pd.DataFrame({
-        ...     'open': [10, 11, 12, 13, 14],
-        ...     'high': [12, 13, 14, 15, 16],
-        ...     'low':  [9, 10, 11, 12, 13],
-        ...     'close': [11, 12, 13, 14, 15],
-        ...     'volume': [100, 100, 100, 100, 100]
-        ... })
-        >>> result = volatility_threshold(df)
-        >>> result['volatility_threshold']
-        0         NaN
-        1    0.300000
-        2    0.272727
-        3    0.250000
-        4    0.230769
-        dtype: float64
     """
     df_calc = validate_ohlcv(df)
     
-    logger.debug(f"📈 Calculating volatility threshold with volatility_multiplier={volatility_multiplier}")
-    logger.debug(f"📊 Input data shape: {df_calc.shape}")
-    logger.debug(f"📊 High values: {df_calc['high'].values}")
-    logger.debug(f"📊 Low values: {df_calc['low'].values}")
-    logger.debug(f"📊 Close values: {df_calc['close'].values}")
+    logger.debug(f"📈 Calculating volatility threshold (multiplier={volatility_multiplier})")
     
     # Convert to float64 for TA-Lib
     high = df_calc['high'].values.astype(np.float64)
@@ -235,29 +283,18 @@ def volatility_threshold(
     
     # Calculate TR using TA-Lib
     tr = pd.Series(talib.TRANGE(high, low, close), index=df_calc.index)
-    logger.debug(f"📊 TR values: {tr.values}")
     
     # Calculate threshold as percentage of price
     # First value will be NaN due to TR calculation
     threshold = pd.Series(np.nan, index=df_calc.index)
     
     # Calculate only where we have valid TR values and non-zero low prices
-    # Skip the first value which should remain NaN
-    valid_idx = (df_calc['low'] > 0) & tr.notna() & (pd.Series(range(len(df_calc))) > 0)
-    logger.debug(f"✨ Valid indices: {valid_idx}")
-    logger.debug(f"📊 Low prices > 0: {df_calc['low'] > 0}")
-    logger.debug(f"📊 TR not NaN: {tr.notna()}")
-    logger.debug(f"📊 Index > first: {pd.Series(range(len(df_calc))) > 0}")
+    valid_idx = (df_calc['low'] > 0) & tr.notna()
     
     if valid_idx.any():
         # Calculate threshold as percentage of price
         threshold[valid_idx] = (tr[valid_idx] / df_calc['low'][valid_idx]) * volatility_multiplier
-        logger.debug(f"✨ Calculated thresholds for {valid_idx.sum()} valid bars")
-        logger.debug(f"📊 TR values used: {tr[valid_idx].values}")
-        logger.debug(f"📊 Low values used: {df_calc['low'][valid_idx].values}")
-        logger.debug(f"📊 Raw ratios (TR/Low): {(tr[valid_idx] / df_calc['low'][valid_idx]).values}")
-        logger.debug(f"📊 Final threshold values: {threshold.values}")
-        logger.debug(f"📊 Threshold stats - Mean: {threshold.mean():.4f}, Max: {threshold.max():.4f}, Min: {threshold.min():.4f}")
+        logger.debug(f"✨ Calculated thresholds for {valid_idx.sum()} bars")
     else:
         logger.warning("⚠️ No valid data points found for threshold calculation")
     
@@ -265,6 +302,7 @@ def volatility_threshold(
         'volatility_threshold': threshold
     }
 
+@with_timeframes
 def dual_ma(
     df: pd.DataFrame,
     fast_period: int = 10,
@@ -276,9 +314,6 @@ def dual_ma(
     """
     Calculate dual moving average indicator with flexible MA types and crossover detection.
     
-    The indicator calculates two moving averages (fast and slow) using specified types
-    and periods, then generates signals based on their relative positions.
-    
     Args:
         df: DataFrame with OHLCV data
         fast_period: Period for fast moving average (must be < slow_period)
@@ -289,12 +324,9 @@ def dual_ma(
         
     Returns:
         dict: Dictionary containing:
-            - '{fast_ma_type}{fast_period}': Fast moving average series
-            - '{slow_ma_type}{slow_period}': Slow moving average series
-            - 'dual_ma_binary_signal': Binary signal series (1=bullish, 0=bearish)
-            
-    Raises:
-        ValueError: If fast_period >= slow_period
+            - dual_ma_{fast_ma_type}_fast: Fast moving average series
+            - dual_ma_{slow_ma_type}_slow: Slow moving average series
+            - dual_ma_signal: Binary signal series (1=bullish, 0=bearish)
             
     Example:
         >>> df = pd.DataFrame({
@@ -319,8 +351,6 @@ def dual_ma(
         logger.error(f"❌ Invalid periods: fast_period ({fast_period}) >= slow_period ({slow_period})")
         raise ValueError(f"fast_period ({fast_period}) must be less than slow_period ({slow_period})")
         
-    logger.debug(f"📊 Calculating dual MA crossover - Fast: {fast_ma_type}({fast_period}), Slow: {slow_ma_type}({slow_period})")
-    
     # Calculate fast and slow MAs
     fast_ma = calculate_ma(df_calc, fast_period, fast_ma_type)
     slow_ma = calculate_ma(df_calc, slow_period, slow_ma_type)
@@ -330,15 +360,15 @@ def dual_ma(
     
     # Count signals before shift
     signal_count = signal.sum()
-    logger.debug(f"✨ Found {signal_count} {'crossover' if crossover_only else 'trend'} signals")
+    logger.debug(f"📊 Found {signal_count} {'crossover' if crossover_only else 'trend'} signals")
     
     # Shift signal by 1 to avoid lookahead bias
     signal = signal.shift(1).fillna(0).astype(int)
     
-    # Create dynamic column names based on MA types and periods
-    fast_col = f"{fast_ma_type.lower()}{fast_period}"
-    slow_col = f"{slow_ma_type.lower()}{slow_period}"
-    signal_col = f"dual_ma_signal"
+    # Create dynamic column names based on MA types
+    fast_col = f"dual_ma_{fast_ma_type.lower()}_fast"
+    slow_col = f"dual_ma_{slow_ma_type.lower()}_slow"
+    signal_col = "dual_ma_signal"
     
     return {
         fast_col: fast_ma,

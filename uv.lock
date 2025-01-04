@@ -1874,6 +1874,7 @@ name = "raphs-indicators"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "ccxt" },
     { name = "ccxt-easy-dl" },
     { name = "numpy" },
     { name = "pandas" },
@@ -1885,7 +1886,6 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "backtesting" },
-    { name = "ccxt-easy-dl" },
     { name = "ipykernel" },
     { name = "matplotlib" },
     { name = "seaborn" },
@@ -1893,6 +1893,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "ccxt", specifier = ">=4.4.44" },
     { name = "ccxt-easy-dl", git = "https://github.com/raphant/ccxt-easy-dl.git" },
     { name = "numpy", specifier = ">=2.0.2" },
     { name = "pandas", specifier = ">=2.2.3" },
@@ -1904,7 +1905,6 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "backtesting", specifier = ">=0.3.3" },
-    { name = "ccxt-easy-dl", git = "https://github.com/raphant/ccxt-easy-dl.git" },
     { name = "ipykernel", specifier = ">=6.29.5" },
     { name = "matplotlib", specifier = ">=3.10.0" },
     { name = "seaborn", specifier = ">=0.13.2" },

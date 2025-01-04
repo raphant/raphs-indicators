@@ -228,3 +228,4 @@ def calculate_ma(df: pd.DataFrame, period: int, ma_type: str) -> pd.Series:
     
     logger.debug(f"✨ MA calculation complete - {result.notna().sum()} valid points")
     return result 
+    
