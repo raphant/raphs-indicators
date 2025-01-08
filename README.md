@@ -1,18 +1,27 @@
 # Raph's Technical Analysis Indicators
 
-A Python library providing my own robust, well-tested technical analysis indicators for financial market analysis. Built with a focus on reliability, performance, and avoiding lookahead bias.
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)]()
 
-## Features
+A Python library providing robust, well-tested technical analysis indicators for financial market analysis. Built with a focus on reliability, performance, and avoiding lookahead bias.
+
+## ✨ Features
 
 - **Strict Data Validation**: Enforces OHLCV (Open, High, Low, Close, Volume) data requirements
 - **Lookahead Bias Prevention**: All signals are properly shifted to avoid using future data
 - **Rich Logging**: Detailed debug logging with pretty formatting using `rich`
 - **Vectorized Operations**: Optimized for performance using NumPy and TA-Lib
 - **Comprehensive Testing**: Full test coverage with pytest
+- **Multi-Timeframe Support**: Built-in support for analyzing multiple timeframes simultaneously
+- **Type Hints**: Full Python type hints for better IDE support
+- **Modular Design**: Easy to extend with new indicators
+- **Cryptocurrency Support**: Built-in CCXT integration for crypto market data
 
-## Installation
+## 🚀 Installation
 
-Requires Python 3.9 or higher.
+Requires Python 3.10 or higher.
 
 ### Using UV (Recommended)
 
@@ -30,14 +39,23 @@ pip install git+https://github.com/raphant/raphs-indicators.git
 
 ### Dependencies
 
-- numpy
-- pandas
-- ta-lib
-- rich
+Core dependencies:
+- `numpy>=1.26.0`: Numerical computations
+- `pandas>=2.2.3`: Data manipulation
+- `ta-lib>=0.6.0`: Technical analysis functions
+- `rich>=13.7.0`: Pretty logging and formatting
+- `ccxt>=4.4.44`: Cryptocurrency exchange API
+- `ccxt-easy-dl`: Easy cryptocurrency data downloading
 
-## Sample Indicators & Usage
+Development dependencies:
+- `backtesting>=0.3.3`: Strategy backtesting
+- `ipykernel>=6.29.5`: Jupyter notebook support
+- `matplotlib>=3.10.0`: Data visualization
+- `seaborn>=0.13.2`: Statistical data visualization
 
-Here are some examples of the available indicators. For a complete list and detailed documentation, please refer to the API documentation.
+## 📊 Available Indicators
+
+Here are the key indicators available. For complete documentation, see the API reference.
 
 ### Ladder Breakout Pattern
 
@@ -68,6 +86,29 @@ result = dual_ma(
 signals = result['dual_ma_signal']  # 1 = bullish, 0 = bearish
 ```
 
+### Supertrend
+
+Trend-following indicator that uses ATR to determine support/resistance levels.
+
+```python
+from raphs_indicators import supertrend
+
+result = supertrend(df, multiplier=3.0, period=10)
+trend = result['supertrend_value']     # Support/resistance levels
+signal = result['supertrend_signal']    # 1 = bullish, 0 = bearish
+```
+
+### On-Balance Volume (OBV)
+
+Volume-based momentum indicator for predicting price changes.
+
+```python
+from raphs_indicators import on_balance_volume
+
+result = on_balance_volume(df)
+obv = result['obv_value']  # Cumulative volume flow
+```
+
 ### Volatility Threshold
 
 Dynamic volatility-based threshold calculation.
@@ -79,13 +120,13 @@ result = volatility_threshold(df, volatility_multiplier=0.7)
 threshold = result['volatility_threshold']  # Threshold as percentage of price
 ```
 
-## Data Requirements
+## 📋 Data Requirements
 
 - Input DataFrames must contain OHLCV columns
 - All column names must be lowercase
-- Required columns: 'open', 'high', 'low', 'close', 'volume'
+- Required columns: `open`, `high`, `low`, `close`, `volume`
 
-## Signal Conventions
+## 🎯 Signal Conventions
 
 - All indicator signals use 0/1 values (not True/False)
 - 0 = No signal
@@ -93,9 +134,9 @@ threshold = result['volatility_threshold']  # Threshold as percentage of price
 - Signals are shifted by +1 to avoid lookahead bias
 - Signal column names end with '_signal' (e.g. 'breakout_signal')
 
-## Multi-Timeframe Analysis
+## 🔄 Multi-Timeframe Analysis
 
-All indicators support automatic multi-timeframe analysis through the `with_higher_timeframes` decorator. This allows you to calculate indicators across multiple timeframes in a single call.
+All indicators support automatic multi-timeframe analysis through the `with_higher_timeframes` decorator:
 
 ```python
 from raphs_indicators import dual_ma
@@ -124,9 +165,7 @@ h4_signal = result['dual_ma_signal_4h']         # 4h timeframe
 daily_signal = result['dual_ma_signal_1d']      # Daily timeframe
 ```
 
-The higher timeframe results are automatically downloaded, calculated, and merged with the base timeframe data. All signals are properly aligned to avoid lookahead bias.
-
-## Development
+## 🛠️ Development
 
 ### Setting Up Development Environment
 
@@ -146,14 +185,20 @@ The higher timeframe results are automatically downloaded, calculated, and merge
 3. Install dependencies:
 
    ```bash
-   uv sync
+   uv sync                  # install all dependencies
+   uv sync --group dev      # install development dependencies
    ```
 
 ### Running Tests
 
+The project uses pytest for testing with the following configuration:
+- Test files must be named `test_*.py`
+- Tests are located in the `tests` directory
+- Verbose output with short tracebacks
+
 ```bash
 uv sync  # ensure dependencies are up to date
-pytest tests/
+pytest   # runs with -v --tb=short by default
 ```
 
 ### Managing Dependencies
@@ -172,7 +217,15 @@ Update dependencies and regenerate lockfile:
 uv pip compile pyproject.toml -o uv.lock
 ```
 
-### Best Practices
+### Development Tools
+
+The project includes several development tools:
+- **Backtesting**: Use `backtesting` package for strategy testing
+- **Jupyter Support**: Full notebook support with `ipykernel`
+- **Visualization**: `matplotlib` and `seaborn` for data plotting
+- **Type Checking**: Full type hints throughout the codebase
+
+## 📝 Best Practices
 
 - Always use `df.copy()` when manipulating DataFrames
 - Return computed Series rather than modified DataFrames
@@ -182,10 +235,16 @@ uv pip compile pyproject.toml -o uv.lock
 - Include proper type hints
 - Write tests for new indicators
 
-## License
+## 📄 License
 
 MIT License
 
-## Contributing
+## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Please feel free to submit a Pull Request. For major changes:
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'feat: Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
