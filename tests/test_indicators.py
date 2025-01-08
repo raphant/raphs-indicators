@@ -13,7 +13,8 @@ from raphs_indicators import (
     volatility_threshold,
     validate_ohlcv,
     supertrend,
-    on_balance_volume
+    on_balance_volume,
+    ma_ratio
 )
 # Set module logger to DEBUG level for tests
 logger = logging.getLogger("raphs_indicators")
@@ -209,3 +210,38 @@ def test_on_balance_volume(sample_ohlcv):
     same_price_df['close'] = 10
     same_price_result = on_balance_volume(same_price_df)
     assert (same_price_result['obv_value'] == same_price_df['volume'].iloc[0]).all() 
+
+def test_ma_ratio(sample_ohlcv):
+    """Test Moving Average Ratio indicator."""
+    # Test with default parameters
+    result = ma_ratio(sample_ohlcv)
+    
+    # Check expected key is present
+    assert 'ma_ratio_value' in result
+    
+    # Validate ratio series
+    ratio = result['ma_ratio_value']
+    assert isinstance(ratio, pd.Series)
+    assert len(ratio) == len(sample_ohlcv)
+    
+    # First few values should be NaN due to MA calculation
+    assert pd.isna(ratio.iloc[0])
+    
+    # All other values should be positive (since prices and MAs are positive)
+    assert (ratio.dropna() > 0).all()
+    
+    # Test with different MA types
+    ma_types = ['MA', 'EMA', 'WMA', 'TEMA']
+    for ma_type in ma_types:
+        custom_result = ma_ratio(sample_ohlcv, period=2, ma_type=ma_type)
+        custom_ratio = custom_result['ma_ratio_value']
+        assert len(custom_ratio) == len(sample_ohlcv)
+        assert (custom_ratio.dropna() > 0).all()
+    
+    # Test with invalid MA type
+    with pytest.raises(ValueError, match="Unsupported MA type"):
+        ma_ratio(sample_ohlcv, ma_type='INVALID')
+    
+    # Test with invalid period
+    with pytest.raises(ValueError, match="Period must be a positive integer"):
+        ma_ratio(sample_ohlcv, period=0) 

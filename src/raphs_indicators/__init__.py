@@ -578,3 +578,61 @@ def on_balance_volume(df: pd.DataFrame) -> dict[str, pd.Series]:
         'obv_value': obv
     }
 
+@with_higher_timeframes
+def ma_ratio(df: pd.DataFrame, period: int = 20, ma_type: str = 'EMA') -> dict[str, pd.Series]:
+    """
+    Calculate the ratio between current price and a moving average.
+    
+    This indicator helps identify when price is relatively high or low compared to its
+    moving average. Values > 1 indicate price is above MA, values < 1 indicate price
+    is below MA.
+    
+    Args:
+        df: DataFrame with OHLCV data
+        period: MA period (must be positive integer)
+        ma_type: One of 'MA', 'EMA', 'WMA', 'TEMA'
+        
+    Returns:
+        dict: Dictionary containing:
+            - ma_ratio_value: Series of price/MA ratios
+            
+    Example:
+        >>> df = pd.DataFrame({
+        ...     'open': [10, 11, 12, 13, 14],
+        ...     'high': [12, 13, 14, 15, 16],
+        ...     'low':  [9, 10, 11, 12, 13],
+        ...     'close': [11, 12, 13, 14, 15],
+        ...     'volume': [100, 100, 100, 100, 100]
+        ... })
+        >>> result = ma_ratio(df, period=2, ma_type='EMA')
+        >>> result['ma_ratio_value']
+        0    1.000000
+        1    1.043478
+        2    1.052632
+        3    1.060606
+        4    1.067416
+        dtype: float64
+    """
+    df_calc = validate_ohlcv(df)
+    
+    logger.debug(f"📈 Calculating MA ratio (period={period}, type={ma_type})")
+    
+    # Calculate MA using helper function
+    ma_series = calculate_ma(df_calc, period, ma_type)
+    
+    # Calculate ratio
+    ratio = df_calc['close'] / ma_series
+    
+    # Log descriptive statistics
+    ratio_stats = ratio.describe()
+    logger.debug("📊 MA Ratio Statistics:")
+    logger.debug("Count: %.0f, Mean: %.4f, Std: %.4f", 
+                ratio_stats['count'], ratio_stats['mean'], ratio_stats['std'])
+    logger.debug("Min: %.4f, 25%%: %.4f, 50%%: %.4f, 75%%: %.4f, Max: %.4f",
+                ratio_stats['min'], ratio_stats['25%'], ratio_stats['50%'], 
+                ratio_stats['75%'], ratio_stats['max'])
+    
+    return {
+        'ma_ratio_value': ratio
+    }
+
