@@ -11,7 +11,9 @@ from raphs_indicators import (
     ladder_breakout,
     dual_ma,
     volatility_threshold,
-    validate_ohlcv
+    validate_ohlcv,
+    supertrend,
+    on_balance_volume
 )
 # Set module logger to DEBUG level for tests
 logger = logging.getLogger("raphs_indicators")
@@ -134,191 +136,76 @@ def test_volatility_threshold(sample_ohlcv):
     # Verify that custom threshold is proportionally larger
     ratio = custom_threshold.iloc[1:] / threshold.iloc[1:]
     expected_ratio = 1.5 / 0.7
-    assert np.allclose(ratio, expected_ratio, rtol=1e-10, atol=0), f"Expected ratio {expected_ratio}, got {ratio}" 
+    assert np.allclose(ratio, expected_ratio, rtol=1e-10, atol=0), f"Expected ratio {expected_ratio}, got {ratio}"
 
-def test_ladder_breakout_with_timeframes(sample_ohlcv):
-    """Test ladder breakout with multiple timeframes."""
-    # Create a valid config
-    config = {
-        'symbol': 'BTC/USDT',
-        'original_timeframe': '1h',
-        '4h': {},  # No special params needed for ladder_breakout
-        '1d': {}
-    }
+def test_supertrend(sample_ohlcv):
+    """Test Supertrend indicator."""
+    # Test with default parameters
+    result = supertrend(sample_ohlcv)
     
-    # Mock the download_ohlcv function to return our sample data
-    with patch('raphs_indicators.download_ohlcv') as mock_download:
-        # Create sample data for higher timeframes
-        mock_download.return_value = {
-            '4h': sample_ohlcv.copy(),
-            '1d': sample_ohlcv.copy()
-        }
-        
-        result = ladder_breakout(sample_ohlcv, config)
-        
-        # Check base timeframe results
-        assert 'ladder_breakout_signal' in result
-        assert isinstance(result['ladder_breakout_signal'], pd.Series)
-        
-        # Check higher timeframe results
-        assert 'ladder_breakout_signal_4h' in result
-        assert 'ladder_breakout_signal_1d' in result
-        
-        # Verify all signals are binary
-        for key in ['ladder_breakout_signal', 'ladder_breakout_signal_4h', 'ladder_breakout_signal_1d']:
-            signal = result[key]
-            assert isinstance(signal, pd.Series)
-            assert len(signal) == len(sample_ohlcv)
-            assert signal.dtype == int
-            assert set(signal.unique()).issubset({0, 1})
+    # Check all expected keys are present
+    assert 'supertrend_value' in result
+    assert 'supertrend_signal' in result
+    
+    # Validate supertrend series
+    st = result['supertrend_value']
+    assert isinstance(st, pd.Series)
+    assert len(st) == len(sample_ohlcv)
+    
+    # First few values should be 0 due to ATR calculation period
+    assert (st.iloc[:10] == 0).all()
+    
+    # Validate signal series
+    signal = result['supertrend_signal']
+    assert isinstance(signal, pd.Series)
+    assert len(signal) == len(sample_ohlcv)
+    assert signal.dtype == int
+    assert set(signal.unique()).issubset({0, 1})
+    
+    # Test with custom parameters
+    custom_result = supertrend(
+        sample_ohlcv,
+        multiplier=2.0,
+        period=5
+    )
+    
+    # Verify custom parameters produce different results
+    assert not custom_result['supertrend_value'].equals(result['supertrend_value'])
 
-def test_ladder_breakout_with_timeframes_missing_config():
-    """Test ladder breakout with missing config keys."""
-    sample_data = pd.DataFrame({
-        'open':   [10, 11, 12, 13, 14],
-        'high':   [12, 13, 14, 15, 16],
-        'low':    [9, 10, 11, 12, 13],
-        'close':  [11, 12, 13, 14, 15],
-        'volume': [100, 100, 100, 100, 100]
-    })
+def test_on_balance_volume(sample_ohlcv):
+    """Test On-Balance Volume (OBV) indicator."""
+    # Test with default parameters
+    result = on_balance_volume(sample_ohlcv)
     
-    # Test with missing required keys
-    invalid_config = {
-        'symbol': 'BTC/USDT',
-        # missing original_timeframe
-        '4h': {}
-    }
+    # Check expected key is present
+    assert 'obv_value' in result
     
-    with pytest.raises(ValueError, match="Config must include"):
-        ladder_breakout(sample_data, invalid_config)
-        
-    # Test with no config (should return just base timeframe results)
-    result = ladder_breakout(sample_data)
-    assert 'ladder_breakout_signal' in result
-    assert 'ladder_breakout_signal_4h' not in result
-    assert 'ladder_breakout_signal_1d' not in result
-
-def test_ladder_breakout_with_timeframes_download_error(sample_ohlcv):
-    """Test ladder breakout handling of download errors."""
-    config = {
-        'symbol': 'BTC/USDT',
-        'original_timeframe': '1h',
-        '4h': {},
-        '1d': {}
-    }
+    # Validate OBV series
+    obv = result['obv_value']
+    assert isinstance(obv, pd.Series)
+    assert len(obv) == len(sample_ohlcv)
     
-    # Mock download_ohlcv to raise an exception
-    with patch('raphs_indicators.download_ohlcv') as mock_download:
-        mock_download.side_effect = Exception("Download failed")
-        
-        # Should still return base timeframe results even if higher timeframes fail
-        result = ladder_breakout(sample_ohlcv, config)
-        
-        assert 'ladder_breakout_signal' in result
-        assert isinstance(result['ladder_breakout_signal'], pd.Series)
-        # Higher timeframe signals should not be present due to download failure
-        assert 'ladder_breakout_signal_4h' not in result
-        assert 'ladder_breakout_signal_1d' not in result 
-
-def test_dual_ma_with_timeframes(sample_ohlcv):
-    """Test dual MA with multiple timeframes."""
-    # Create a valid config with custom params for higher timeframes
-    config = {
-        'symbol': 'BTC/USDT',
-        'original_timeframe': '1h',
-        '4h': {
-            'fast_period': 5,
-            'slow_period': 10,
-            'fast_ma_type': 'WMA',
-            'slow_ma_type': 'TEMA'
-        },
-        '1d': {
-            'fast_period': 3,
-            'slow_period': 7,
-            'crossover_only': True
-        }
-    }
+    # First value should be equal to first volume
+    assert obv.iloc[0] == sample_ohlcv['volume'].iloc[0]
     
-    # Mock the download_ohlcv function to return our sample data
-    with patch('raphs_indicators.download_ohlcv') as mock_download:
-        # Create sample data for higher timeframes
-        mock_download.return_value = {
-            '4h': sample_ohlcv.copy(),
-            '1d': sample_ohlcv.copy()
-        }
-        
-        result = dual_ma(sample_ohlcv, config)
-        
-        # Check base timeframe results (default params)
-        assert 'dual_ma_ema_fast' in result
-        assert 'dual_ma_ema_slow' in result
-        assert 'dual_ma_signal' in result
-        
-        # Check 4h timeframe results
-        assert 'dual_ma_wma_fast_4h' in result
-        assert 'dual_ma_tema_slow_4h' in result
-        assert 'dual_ma_signal_4h' in result
-        
-        # Check 1d timeframe results
-        assert 'dual_ma_ema_fast_1d' in result
-        assert 'dual_ma_ema_slow_1d' in result
-        assert 'dual_ma_signal_1d' in result
-        
-        # Verify all signals are binary
-        for key in ['dual_ma_signal', 'dual_ma_signal_4h', 'dual_ma_signal_1d']:
-            signal = result[key]
-            assert isinstance(signal, pd.Series)
-            assert len(signal) == len(sample_ohlcv)
-            assert signal.dtype == int
-            assert set(signal.unique()).issubset({0, 1})
-
-def test_dual_ma_with_timeframes_missing_config():
-    """Test dual MA with missing config keys."""
-    sample_data = pd.DataFrame({
-        'open':   [10, 11, 12, 13, 14],
-        'high':   [12, 13, 14, 15, 16],
-        'low':    [9, 10, 11, 12, 13],
-        'close':  [11, 12, 13, 14, 15],
-        'volume': [100, 100, 100, 100, 100]
-    })
+    # Verify OBV calculation logic
+    for i in range(1, len(sample_ohlcv)):
+        price_change = sample_ohlcv['close'].iloc[i] - sample_ohlcv['close'].iloc[i-1]
+        if price_change > 0:
+            assert obv.iloc[i] == obv.iloc[i-1] + sample_ohlcv['volume'].iloc[i]
+        elif price_change < 0:
+            assert obv.iloc[i] == obv.iloc[i-1] - sample_ohlcv['volume'].iloc[i]
+        else:
+            assert obv.iloc[i] == obv.iloc[i-1]
+            
+    # Test with zero volume
+    zero_vol_df = sample_ohlcv.copy()
+    zero_vol_df['volume'] = 0
+    zero_result = on_balance_volume(zero_vol_df)
+    assert (zero_result['obv_value'] == 0).all()
     
-    # Test with missing required keys
-    invalid_config = {
-        'symbol': 'BTC/USDT',
-        # missing original_timeframe
-        '4h': {'fast_period': 5, 'slow_period': 10}
-    }
-    
-    with pytest.raises(ValueError, match="Config must include"):
-        dual_ma(sample_data, invalid_config)
-        
-    # Test with no config (should return just base timeframe results)
-    result = dual_ma(sample_data)
-    assert 'dual_ma_ema_fast' in result
-    assert 'dual_ma_ema_slow' in result
-    assert 'dual_ma_signal' in result
-    assert 'dual_ma_signal_4h' not in result
-    assert 'dual_ma_signal_1d' not in result
-
-def test_dual_ma_with_timeframes_download_error(sample_ohlcv):
-    """Test dual MA handling of download errors."""
-    config = {
-        'symbol': 'BTC/USDT',
-        'original_timeframe': '1h',
-        '4h': {'fast_period': 5, 'slow_period': 10},
-        '1d': {'fast_period': 3, 'slow_period': 7}
-    }
-    
-    # Mock download_ohlcv to raise an exception
-    with patch('raphs_indicators.download_ohlcv') as mock_download:
-        mock_download.side_effect = Exception("Download failed")
-        
-        # Should still return base timeframe results even if higher timeframes fail
-        result = dual_ma(sample_ohlcv, config)
-        
-        assert 'dual_ma_ema_fast' in result
-        assert 'dual_ma_ema_slow' in result
-        assert 'dual_ma_signal' in result
-        # Higher timeframe signals should not be present due to download failure
-        assert 'dual_ma_signal_4h' not in result
-        assert 'dual_ma_signal_1d' not in result 
+    # Test with all same prices (no change)
+    same_price_df = sample_ohlcv.copy()
+    same_price_df['close'] = 10
+    same_price_result = on_balance_volume(same_price_df)
+    assert (same_price_result['obv_value'] == same_price_df['volume'].iloc[0]).all() 

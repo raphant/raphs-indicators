@@ -5,7 +5,7 @@ description = "Technical analysis indicators for financial market analysis"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "numpy>=2.0.2",
+    "numpy>=1.26.0",
     "pandas>=2.2.3",
     "pytest>=8.3.4",
     "ta-lib>=0.6.0",

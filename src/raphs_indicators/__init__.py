@@ -87,6 +87,7 @@ import pandas as pd
 import talib
 
 from raphs_indicators.utils import merge_informative_pair
+from raphs_indicators.exceptions import DownloadError
 from .helpers import calculate_ma, detect_crossover, validate_ohlcv
 import numpy as np
 import logging
@@ -116,10 +117,13 @@ def with_higher_timeframes(func):
         '1d': {'param1': value1}
     }
     """
-    def wrapper(df: pd.DataFrame, config: dict = None, *args, **kwargs):
+    def wrapper(df: pd.DataFrame, *args, **kwargs):
+        # Pop config from kwargs if it exists
+        config = kwargs.pop('config', None)
+        
         # Get base results first using original arguments
         logger.debug("🔄 Calculating base timeframe indicators")
-        base_results = func(df, *args, **kwargs)
+        base_results: dict[str, pd.Series] = func(df, *args, **kwargs)
         
         if not config:
             return base_results
@@ -146,6 +150,8 @@ def with_higher_timeframes(func):
         # Calculate for each additional timeframe
         for tf, tf_kwargs in timeframe_configs.items():
             logger.debug(f"🔄 Processing {tf} timeframe for {symbol}")
+            
+            # Download data for higher timeframe
             try:
                 tf_df = download_ohlcv(
                     symbol,
@@ -153,17 +159,23 @@ def with_higher_timeframes(func):
                     start_date=start_date,
                     end_date=end_date
                 )[tf]
-                
-                # Calculate indicators for this timeframe
-                tf_results = func(tf_df, **tf_kwargs)
-                
-                # Convert results to DataFrame for merging
-                tf_results_df = pd.DataFrame(tf_results)
-                
-                # Create empty DataFrame with correct index
-                empty_df = pd.DataFrame(index=df.index)
-                
-                # Merge with higher timeframe data
+            except Exception as e:
+                logger.exception(f"❌ Failed to download {tf} timeframe data: {str(e)}")
+                raise DownloadError(symbol, tf, str(e))
+            
+            # Calculate indicators for this timeframe
+            try:
+                tf_results: dict[str, pd.Series] = func(tf_df, **tf_kwargs)
+            except Exception as e:
+                logger.exception(f"❌ Failed to calculate indicators for {tf} timeframe: {str(e)}")
+                raise
+            
+            # Convert results to DataFrame for merging
+            tf_results_df = pd.DataFrame(tf_results)
+            empty_df = pd.DataFrame(index=df.index)
+            
+            # Merge with higher timeframe data
+            try:
                 merged = merge_informative_pair(
                     dataframe=empty_df,
                     informative=tf_results_df,
@@ -173,26 +185,25 @@ def with_higher_timeframes(func):
                     append_timeframe=True,
                     suffix=None
                 )
-                
-                # Add merged columns to final results
-                for col in merged.columns:
-                    # Check if this is a signal column (with timeframe suffix)
-                    is_signal = any(col.startswith(f"{base_col}_") and base_col.endswith('_signal') 
-                                  for base_col in tf_results_df.columns)
-                    
-                    if is_signal:
-                        try:
-                            # Convert signal columns to int, handling NaN values
-                            final_results[col] = merged[col].fillna(0).astype('int64')
-                        except Exception as e:
-                            logger.error(f"❌ Failed to convert {col} to int: {str(e)}")
-                            raise
-                    else:
-                        final_results[col] = merged[col]
-                    
             except Exception as e:
-                logger.exception(f"❌ Failed to process {tf} timeframe: {str(e)}")
-                continue
+                logger.exception(f"❌ Failed to merge {tf} timeframe data: {str(e)}")
+                raise
+            
+            # Add merged columns to final results
+            for col in merged.columns:
+                # Check if this is a signal column (with timeframe suffix)
+                is_signal = any(col.startswith(f"{base_col}_") and base_col.endswith('_signal') 
+                              for base_col in tf_results_df.columns)
+                
+                if is_signal:
+                    try:
+                        # Convert signal columns to int, handling NaN values
+                        final_results[col] = merged[col].fillna(0).astype('int64')
+                    except Exception as e:
+                        logger.error(f"❌ Failed to convert {col} to int: {str(e)}")
+                        raise
+                else:
+                    final_results[col] = merged[col]
                 
         return final_results
         
@@ -374,5 +385,196 @@ def dual_ma(
         fast_col: fast_ma,
         slow_col: slow_ma,
         signal_col: signal
+    }
+
+@with_higher_timeframes
+def supertrend(
+    df: pd.DataFrame,
+    multiplier: float = 3.0,
+    period: int = 10
+) -> dict[str, pd.Series]:
+    """
+    Calculate the Supertrend indicator which combines trend detection with volatility.
+    
+    The Supertrend is a trend-following indicator that uses ATR to determine its levels.
+    It provides both trend direction and potential support/resistance levels.
+    
+    Args:
+        df: DataFrame with OHLCV data
+        multiplier: ATR multiplier for band calculation (default: 3.0)
+        period: Period for ATR calculation (default: 10)
+        
+    Returns:
+        dict: Dictionary containing:
+            - supertrend_value: The Supertrend level series
+            - supertrend_signal: Binary signal series (1=bullish, 0=bearish)
+            
+    Note:
+        - Signal is shifted by +1 to avoid lookahead bias
+        - First `period` values will be NaN due to ATR calculation
+        
+    Example:
+        >>> df = pd.DataFrame({
+        ...     'open': [10, 11, 12, 13, 14],
+        ...     'high': [12, 13, 14, 15, 16],
+        ...     'low':  [9, 10, 11, 12, 13],
+        ...     'close': [11, 12, 13, 14, 15],
+        ...     'volume': [100, 100, 100, 100, 100]
+        ... })
+        >>> result = supertrend(df, multiplier=3, period=2)
+        >>> result['supertrend_signal']
+        0    0
+        1    0
+        2    1
+        3    1
+        4    1
+        dtype: int64
+    """
+    df_calc = validate_ohlcv(df)
+    
+    logger.debug(f"📈 Calculating Supertrend (multiplier={multiplier}, period={period})")
+    
+    # Convert to float64 for TA-Lib
+    high = df_calc['high'].values.astype(np.float64)
+    low = df_calc['low'].values.astype(np.float64)
+    close = df_calc['close'].values.astype(np.float64)
+    
+    # Calculate TR and ATR using TA-Lib
+    tr = pd.Series(talib.TRANGE(high, low, close), index=df_calc.index)
+    atr = pd.Series(talib.SMA(tr, period), index=df_calc.index)
+    
+    # Calculate basic upper and lower bands
+    hl2 = (df_calc['high'] + df_calc['low']) / 2
+    basic_ub = hl2 + multiplier * atr
+    basic_lb = hl2 - multiplier * atr
+    
+    # Initialize final bands
+    final_ub = pd.Series(0.0, index=df_calc.index)
+    final_lb = pd.Series(0.0, index=df_calc.index)
+    
+    # Calculate final upper band
+    for i in range(period, len(df_calc)):
+        final_ub.iloc[i] = (
+            basic_ub.iloc[i] 
+            if basic_ub.iloc[i] < final_ub.iloc[i - 1] or df_calc['close'].iloc[i - 1] > final_ub.iloc[i - 1]
+            else final_ub.iloc[i - 1]
+        )
+            
+    # Calculate final lower band
+    for i in range(period, len(df_calc)):
+        final_lb.iloc[i] = (
+            basic_lb.iloc[i]
+            if basic_lb.iloc[i] > final_lb.iloc[i - 1] or df_calc['close'].iloc[i - 1] < final_lb.iloc[i - 1]
+            else final_lb.iloc[i - 1]
+        )
+    
+    # Calculate Supertrend value
+    supertrend = pd.Series(0.0, index=df_calc.index)
+    
+    for i in range(period, len(df_calc)):
+        supertrend.iloc[i] = (
+            final_ub.iloc[i] if supertrend.iloc[i - 1] == final_ub.iloc[i - 1] and df_calc['close'].iloc[i] <= final_ub.iloc[i]
+            else final_lb.iloc[i] if supertrend.iloc[i - 1] == final_ub.iloc[i - 1] and df_calc['close'].iloc[i] > final_ub.iloc[i]
+            else final_lb.iloc[i] if supertrend.iloc[i - 1] == final_lb.iloc[i - 1] and df_calc['close'].iloc[i] >= final_lb.iloc[i]
+            else final_ub.iloc[i] if supertrend.iloc[i - 1] == final_lb.iloc[i - 1] and df_calc['close'].iloc[i] < final_lb.iloc[i]
+            else 0.0
+        )
+    
+    # Generate signal (1 when price is above Supertrend)
+    signal = (df_calc['close'] > supertrend).astype(int)
+    
+    # Count signals before shift
+    signal_count = signal.sum()
+    logger.debug(f"📊 Found {signal_count} bullish signals")
+    
+    # Log descriptive statistics for supertrend values
+    st_stats = supertrend.describe()
+    logger.debug("📊 Supertrend Statistics:")
+    logger.debug("Count: %.0f, Mean: %.2f, Std: %.2f", 
+                st_stats['count'], st_stats['mean'], st_stats['std'])
+    logger.debug("Min: %.2f, 25%%: %.2f, 50%%: %.2f, 75%%: %.2f, Max: %.2f",
+                st_stats['min'], st_stats['25%'], st_stats['50%'], 
+                st_stats['75%'], st_stats['max'])
+    
+    # Shift signal by 1 to avoid lookahead bias
+    signal = signal.shift(1).fillna(0).astype(int)
+    
+    return {
+        'supertrend_value': supertrend,
+        'supertrend_signal': signal
+    }
+
+@with_higher_timeframes
+def on_balance_volume(df: pd.DataFrame) -> dict[str, pd.Series]:
+    """
+    Calculate On-Balance Volume (OBV), a momentum indicator that uses volume flow 
+    to predict changes in price.
+    
+    OBV is calculated by adding volume on up days and subtracting it on down days.
+    The absolute value is not important; what matters is the trend and divergences.
+    
+    Formula:
+        If close > previous close:
+            OBV = previous OBV + current volume
+        If close < previous close:
+            OBV = previous OBV - current volume
+        If close = previous close:
+            OBV = previous OBV
+    
+    Args:
+        df: DataFrame with OHLCV data
+        
+    Returns:
+        dict: Dictionary containing:
+            - obv_value: The OBV value series
+            
+    Example:
+        >>> df = pd.DataFrame({
+        ...     'open': [10, 11, 12, 13, 14],
+        ...     'high': [12, 13, 14, 15, 16],
+        ...     'low':  [9, 10, 11, 12, 13],
+        ...     'close': [11, 12, 13, 14, 15],
+        ...     'volume': [100, 100, 100, 100, 100]
+        ... })
+        >>> result = on_balance_volume(df)
+        >>> result['obv_value']
+        0    100
+        1    200
+        2    300
+        3    400
+        4    500
+        dtype: int64
+    """
+    df_calc = validate_ohlcv(df)
+    
+    logger.debug("📈 Calculating On-Balance Volume")
+    
+    # Calculate price changes
+    price_changes = df_calc['close'].diff()
+    
+    # Initialize OBV series with first volume value
+    obv = pd.Series(0, index=df_calc.index)
+    obv.iloc[0] = df_calc['volume'].iloc[0]
+    
+    # Calculate OBV values
+    for i in range(1, len(df_calc)):
+        if price_changes.iloc[i] > 0:
+            obv.iloc[i] = obv.iloc[i-1] + df_calc['volume'].iloc[i]
+        elif price_changes.iloc[i] < 0:
+            obv.iloc[i] = obv.iloc[i-1] - df_calc['volume'].iloc[i]
+        else:
+            obv.iloc[i] = obv.iloc[i-1]
+    
+    # Log descriptive statistics
+    obv_stats = obv.describe()
+    logger.debug("📊 OBV Statistics:")
+    logger.debug("Count: %.0f, Mean: %.2f, Std: %.2f", 
+                obv_stats['count'], obv_stats['mean'], obv_stats['std'])
+    logger.debug("Min: %.2f, 25%%: %.2f, 50%%: %.2f, 75%%: %.2f, Max: %.2f",
+                obv_stats['min'], obv_stats['25%'], obv_stats['50%'], 
+                obv_stats['75%'], obv_stats['max'])
+    
+    return {
+        'obv_value': obv
     }
 
