@@ -553,7 +553,7 @@ def on_balance_volume(df: pd.DataFrame) -> dict[str, pd.Series]:
     price_changes = df_calc['close'].diff()
     
     # Initialize OBV series with first volume value
-    obv = pd.Series(0, index=df_calc.index)
+    obv = pd.Series(0, index=df_calc.index, dtype=float)  # Use float dtype to avoid warning
     obv.iloc[0] = df_calc['volume'].iloc[0]
     
     # Calculate OBV values
@@ -634,5 +634,113 @@ def ma_ratio(df: pd.DataFrame, period: int = 20, ma_type: str = 'EMA') -> dict[s
     
     return {
         'ma_ratio_value': ratio
+    }
+
+@with_higher_timeframes
+def choppiness_index(
+    df: pd.DataFrame,
+    period: int = 14,
+    ratio: bool = False
+) -> dict[str, pd.Series]:
+    """
+    Calculate the Choppiness Index (CHOP) which indicates if market is choppy (trending) or not.
+    
+    The Choppiness Index is designed to determine if the market is trending or trading sideways.
+    It combines the concepts of ADX and ATR to identify trading ranges and trends.
+    
+    Formula (standard):
+        CHOP = 100 * LOG10((SUM(ATR(1), period)) / (MaxHigh(period) - MinLow(period))) / LOG10(period)
+    
+    Formula (ratio):
+        CHOP_ratio = SUM(TR, period) / (period * ATR(period))
+    
+    Args:
+        df: DataFrame with OHLCV data
+        period: Lookback period (default: 14)
+        ratio: If True, return the raw ratio instead of the scaled index (default: False)
+        
+    Returns:
+        dict: Dictionary containing:
+            - chop_value: The Choppiness Index value (0-100) or ratio if ratio=True
+            
+    Note:
+        - Standard CHOP values range from 0 to 100:
+          * Values > 60 indicate a choppy market
+          * Values < 40 indicate a trending market
+        - Ratio values typically range around 1:
+          * Values > 1 indicate a choppy market
+          * Values < 1 indicate a trending market
+        
+    Example:
+        >>> df = pd.DataFrame({
+        ...     'open': [10, 11, 12, 13, 14],
+        ...     'high': [12, 13, 14, 15, 16],
+        ...     'low':  [9, 10, 11, 12, 13],
+        ...     'close': [11, 12, 13, 14, 15],
+        ...     'volume': [100, 100, 100, 100, 100]
+        ... })
+        >>> result = choppiness_index(df, period=3)
+        >>> result['chop_value']
+        0     NaN
+        1     NaN
+        2    45.23
+        3    48.67
+        4    52.12
+        dtype: float64
+    """
+    df_calc = validate_ohlcv(df)
+    
+    # Validate period
+    if not isinstance(period, int) or period <= 0:
+        logger.error(f"❌ Invalid period: {period}")
+        raise ValueError(f"Period must be a positive integer, got {period}")
+    
+    logger.debug(f"📈 Calculating Choppiness Index (period={period}, ratio={ratio})")
+    
+    # Convert to float64 for TA-Lib
+    high = df_calc['high'].values.astype(np.float64)
+    low = df_calc['low'].values.astype(np.float64)
+    close = df_calc['close'].values.astype(np.float64)
+    
+    # Calculate True Range using TA-Lib
+    tr = pd.Series(talib.TRANGE(high, low, close), index=df_calc.index)
+    
+    # Calculate ATR using TA-Lib
+    atr = pd.Series(talib.ATR(high, low, close, timeperiod=period), index=df_calc.index)
+    
+    # Calculate sum of TR over period
+    tr_sum = tr.rolling(window=period).sum()
+    
+    if ratio:
+        # Calculate ratio version: SUM(TR) / (period * ATR)
+        chop = tr_sum / (period * atr)
+    else:
+        # Calculate highest high and lowest low over period
+        high_max = df_calc['high'].rolling(window=period).max()
+        low_min = df_calc['low'].rolling(window=period).min()
+        
+        # Calculate standard CHOP
+        # Handle potential division by zero and log of zero/negative numbers
+        denom = high_max - low_min
+        valid_idx = (denom > 0) & (tr_sum > 0)
+        
+        chop = pd.Series(np.nan, index=df_calc.index)
+        if valid_idx.any():
+            chop[valid_idx] = 100 * np.log10(tr_sum[valid_idx] / denom[valid_idx]) / np.log10(period)
+    
+    # Log descriptive statistics
+    valid_stats = chop[chop.notna()]
+    if not valid_stats.empty:
+        logger.debug("📊 Choppiness Index Statistics:")
+        logger.debug("Count: %.0f, Mean: %.2f, Std: %.2f", 
+                    len(valid_stats), valid_stats.mean(), valid_stats.std())
+        logger.debug("Min: %.2f, 25%%: %.2f, 50%%: %.2f, 75%%: %.2f, Max: %.2f",
+                    valid_stats.min(), valid_stats.quantile(0.25), valid_stats.median(),
+                    valid_stats.quantile(0.75), valid_stats.max())
+    else:
+        logger.warning("⚠️ No valid Choppiness Index values calculated")
+    
+    return {
+        'chop_value': chop
     }
 

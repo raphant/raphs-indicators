@@ -14,7 +14,8 @@ from raphs_indicators import (
     validate_ohlcv,
     supertrend,
     on_balance_volume,
-    ma_ratio
+    ma_ratio,
+    choppiness_index
 )
 # Set module logger to DEBUG level for tests
 logger = logging.getLogger("raphs_indicators")
@@ -245,3 +246,54 @@ def test_ma_ratio(sample_ohlcv):
     # Test with invalid period
     with pytest.raises(ValueError, match="Period must be a positive integer"):
         ma_ratio(sample_ohlcv, period=0) 
+
+def test_choppiness_index(sample_ohlcv):
+    """Test Choppiness Index indicator."""
+    # Test with default parameters (standard mode)
+    result = choppiness_index(sample_ohlcv)
+    
+    # Check expected key is present
+    assert 'chop_value' in result
+    
+    # Validate CHOP series
+    chop = result['chop_value']
+    assert isinstance(chop, pd.Series)
+    assert len(chop) == len(sample_ohlcv)
+    
+    # First few values should be NaN due to period calculation
+    assert pd.isna(chop.iloc[0])
+    
+    # Standard CHOP values should be between 0 and 100
+    valid_values = chop.dropna()
+    assert (valid_values >= 0).all() and (valid_values <= 100).all()
+    
+    # Test ratio mode
+    ratio_result = choppiness_index(sample_ohlcv, ratio=True)
+    ratio = ratio_result['chop_value']
+    
+    # Validate ratio series
+    assert isinstance(ratio, pd.Series)
+    assert len(ratio) == len(sample_ohlcv)
+    
+    # Ratio values should be positive
+    valid_ratios = ratio.dropna()
+    assert (valid_ratios > 0).all()
+    
+    # Test with custom period
+    custom_result = choppiness_index(sample_ohlcv, period=5)
+    custom_chop = custom_result['chop_value']
+    assert len(custom_chop) == len(sample_ohlcv)
+    
+    # Test with invalid period
+    with pytest.raises(ValueError, match="Period must be a positive integer"):
+        choppiness_index(sample_ohlcv, period=0)
+    
+    # Test with constant price data (should handle edge case)
+    constant_df = sample_ohlcv.copy()
+    constant_df['high'] = constant_df['low'] = constant_df['close'] = 10
+    const_result = choppiness_index(constant_df)
+    assert pd.isna(const_result['chop_value']).all()  # Should be all NaN due to log(0)
+    
+    # Test ratio mode with constant price data
+    const_ratio_result = choppiness_index(constant_df, ratio=True)
+    assert pd.isna(const_ratio_result['chop_value']).all()  # Should be all NaN due to ATR=0 
