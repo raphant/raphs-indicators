@@ -1,3 +1,4 @@
+from __future__ import annotations
 import ccxt
 import pandas as pd
 

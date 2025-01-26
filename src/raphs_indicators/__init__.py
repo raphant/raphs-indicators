@@ -81,6 +81,7 @@ def my_indicator(df: pd.DataFrame, param: int) -> Dict[str, pd.Series]:
         f'my_ind_lower': lower
     }
 """
+from __future__ import annotations
 
 from ccxt_easy_dl import download_ohlcv
 import pandas as pd

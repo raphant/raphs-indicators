@@ -3,7 +3,7 @@ name = "raphs-indicators"
 version = "0.1.1"
 description = "Technical analysis indicators for financial market analysis"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 dependencies = [
     "numpy>=1.26.0",
     "pandas>=2.2.3",
@@ -30,6 +30,6 @@ ccxt-easy-dl = { git = "https://github.com/raphant/ccxt-easy-dl.git" }
 dev = [
     "backtesting>=0.3.3",
     "ipykernel>=6.29.5",
-    "matplotlib>=3.10.0",
+    "matplotlib>=3",
     "seaborn>=0.13.2",
 ]

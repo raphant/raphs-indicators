@@ -13,18 +13,24 @@ logger = logging.getLogger("raphs_indicators")
 
 def validate_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Validate that DataFrame has required OHLCV columns and normalize column names to lowercase.
+    Validate that DataFrame has required OHLCV columns, normalize column names to lowercase,
+    and ensure no duplicate indexes by keeping first occurrence.
     
     Args:
         df: Input DataFrame
         
     Returns:
-        pd.DataFrame: Copy of input DataFrame with lowercase column names
-        
-    Raises:
-        ValueError: If required OHLCV columns are missing
+        pd.DataFrame: Copy of input DataFrame with lowercase column names and unique index
     """
     df_copy = df.copy()
+    
+    # Check and fix duplicate indexes by keeping first occurrence
+    duplicates = df_copy.index.duplicated()
+    if duplicates.any():
+        duplicate_indices = df_copy.index[duplicates]
+        logger.warning(f"⚠️ Found {len(duplicate_indices)} duplicate index entries - keeping first occurrence")
+        logger.debug("First few duplicate timestamps: %s", duplicate_indices[:3].tolist())
+        df_copy = df_copy[~df_copy.index.duplicated(keep='first')]
     
     # Convert all column names to lowercase
     df_copy.columns = df_copy.columns.str.lower()
@@ -36,7 +42,7 @@ def validate_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
         logger.error(f"❌ Missing required columns: {missing_columns}")
         raise ValueError(f"DataFrame missing required columns: {missing_columns}")
         
-    logger.debug("✓ DataFrame validated - all OHLCV columns present")
+    logger.debug("✓ DataFrame validated - all OHLCV columns present and index is unique")
     return df_copy
 
 def _compare_series(series1: pd.Series, series2: pd.Series, comparison_func) -> pd.Series:
